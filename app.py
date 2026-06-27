@@ -6,7 +6,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import json
 
-app = Flask(__name__)
+import os
+app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), 'templates'))
 
 @app.route('/')
 def index():
