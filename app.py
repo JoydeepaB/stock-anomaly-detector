@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 
 app = Flask(__name__)
@@ -204,7 +204,7 @@ analyzeBtn.addEventListener('click', async () => {
         anomaliesTableBody.innerHTML = '';
         if (data.anomaly_details.length > 0) {
             data.anomaly_details.forEach(anomaly => {
-                const row = `<tr><td>${new Date(anomaly.Date).toLocaleDateString()}</td><td>$${anomaly.Close.toFixed(2)}</td><td>${anomaly['Daily_Return'].toFixed(3)}%</td></tr>`;
+                const row = `<tr><td>${new Date(anomaly.Date).toLocaleDateString()}</td><td>$${anomaly.Close.toFixed(2)}</td><td>${anomaly.Daily_Return.toFixed(3)}%</td></tr>`;
                 anomaliesTableBody.innerHTML += row;
             });
             document.getElementById('anomaliesContainer').style.display = 'block';
@@ -265,30 +265,46 @@ def analyze():
                 df = pd.DataFrame({'Date': dates, 'Close': prices})
         
         df['Daily_Return'] = df['Close'].pct_change() * 100
-        X = df[['Daily_Return']].fillna(0).values
+        df['Daily_Return'] = df['Daily_Return'].fillna(0)
+        
+        X = df[['Daily_Return']].values
         iso_forest = IsolationForest(contamination=contamination, random_state=42)
         df['Anomaly'] = iso_forest.fit_predict(X)
         df['Is_Anomaly'] = (df['Anomaly'] == -1).astype(int)
-        df['Anomaly_Score'] = iso_forest.score_samples(X)
         anomalies = df[df['Is_Anomaly'] == 1]
         
-       response = {
-    'success': True,
-    'ticker': ticker,
-    'total_days': len(df),
-    'anomalies_count': int(df['Is_Anomaly'].sum()),
-    'avg_return': float(df['Daily_Return'].mean()) if not np.isnan(df['Daily_Return'].mean()) else 0,
-    'volatility': float(df['Daily_Return'].std()) if not np.isnan(df['Daily_Return'].std()) else 0,
-    'price_min': float(df['Close'].min()),
-    'price_max': float(df['Close'].max()),
-    'chart_data': {
-        'dates': df['Date'].astype(str).tolist(),
-        'prices': df['Close'].round(2).fillna(0).tolist(),
-        'returns': df['Daily_Return'].round(3).fillna(0).tolist(),
-        'anomalies': df['Is_Anomaly'].tolist()
-    },
-    'anomaly_details': anomalies[['Date', 'Close', 'Daily_Return']].fillna(0).to_dict('records')
-}
+        avg_return = float(df['Daily_Return'].mean())
+        volatility = float(df['Daily_Return'].std())
+        
+        if np.isnan(avg_return):
+            avg_return = 0
+        if np.isnan(volatility):
+            volatility = 0
+        
+        response = {
+            'success': True,
+            'ticker': ticker,
+            'total_days': int(len(df)),
+            'anomalies_count': int(df['Is_Anomaly'].sum()),
+            'avg_return': avg_return,
+            'volatility': volatility,
+            'price_min': float(df['Close'].min()),
+            'price_max': float(df['Close'].max()),
+            'chart_data': {
+                'dates': [str(d.date()) for d in df['Date']],
+                'prices': [float(x) for x in df['Close'].round(2)],
+                'returns': [float(x) for x in df['Daily_Return'].round(3)],
+                'anomalies': [int(x) for x in df['Is_Anomaly']]
+            },
+            'anomaly_details': [
+                {
+                    'Date': str(row['Date'].date()),
+                    'Close': float(row['Close']),
+                    'Daily_Return': float(row['Daily_Return'])
+                }
+                for _, row in anomalies.iterrows()
+            ]
+        }
         return jsonify(response)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
