@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Anomaly Detector</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Stock Anomaly Detector</h1>
+            <p>Detect unusual price movements using Machine Learning</p>
+        </header>
+
+        <div class="controls">
+            <div class="input-group">
+                <label>Stock Ticker:</label>
+                <input type="text" id="ticker" value="AAPL" placeholder="e.g., INFY, TCS, AAPL">
+            </div>
+            <div class="input-group">
+                <label>Days of History:</label>
+                <input type="range" id="days" min="10" max="365" value="30">
+                <span id="daysValue">30</span>
+            </div>
+            <div class="input-group">
+                <label>Anomaly Sensitivity (%):</label>
+                <input type="range" id="contamination" min="5" max="30" value="10" step="1">
+                <span id="contaminationValue">10</span>
+            </div>
+            <button id="analyzeBtn">Analyze</button>
+        </div>
+
+        <div class="metrics" id="metrics">
+            <div class="metric-card">
+                <span class="metric-label">Total Days</span>
+                <span class="metric-value" id="totalDays">-</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Anomalies</span>
+                <span class="metric-value" id="anomaliesCount">-</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Avg Return</span>
+                <span class="metric-value" id="avgReturn">-</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Volatility</span>
+                <span class="metric-value" id="volatility">-</span>
+            </div>
+        </div>
+
+        <div class="loading" id="loading" style="display: none;">
+            <span>Analyzing...</span>
+        </div>
+
+        <div class="chart-container" id="chartContainer" style="display: none;">
+            <h2>Stock Price Analysis</h2>
+            <canvas id="priceChart"></canvas>
+        </div>
+
+        <div class="returns-container" id="returnsContainer" style="display: none;">
+            <h2>Daily Returns</h2>
+            <canvas id="returnsChart"></canvas>
+        </div>
+
+        <div class="anomalies-container" id="anomaliesContainer" style="display: none;">
+            <h2>🚨 Detected Anomalies</h2>
+            <table id="anomaliesTable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Price ($)</th>
+                        <th>Return (%)</th>
+                    </tr>
+                </thead>
+                <tbody id="anomaliesTableBody">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="error" id="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        const ticker = document.getElementById('ticker');
+        const days = document.getElementById('days');
+        const daysValue = document.getElementById('daysValue');
+        const contamination = document.getElementById('contamination');
+        const contaminationValue = document.getElementById('contaminationValue');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+
+        let priceChart = null;
+        let returnsChart = null;
+
+        days.addEventListener('input', (e) => daysValue.textContent = e.target.value);
+        contamination.addEventListener('input', (e) => contaminationValue.textContent = e.target.value);
+
+        analyzeBtn.addEventListener('click', async () => {
+            const tickerValue = ticker.value.toUpperCase() || 'AAPL';
+            const daysValue = parseInt(days.value);
+            const contaminationValue = parseFloat(contamination.value) / 100;
+
+            loading.style.display = 'flex';
+            error.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ticker: tickerValue,
+                        days: daysValue,
+                        contamination: contaminationValue
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Analysis failed');
+                }
+
+                // Update metrics
+                document.getElementById('totalDays').textContent = data.total_days;
+                document.getElementById('anomaliesCount').textContent = data.anomalies_count;
+                document.getElementById('avgReturn').textContent = data.avg_return.toFixed(2) + '%';
+                document.getElementById('volatility').textContent = data.volatility.toFixed(2) + '%';
+
+                // Price chart
+                const priceCtx = document.getElementById('priceChart').getContext('2d');
+                if (priceChart) priceChart.destroy();
+                
+                priceChart = new Chart(priceCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.chart_data.dates,
+                        datasets: [{
+                            label: 'Price',
+                            data: data.chart_data.prices,
+                            borderColor: '#3498db',
+                            borderWidth: 2,
+                            fill: false,
+                            pointRadius: 4,
+                            pointBackgroundColor: data.chart_data.anomalies.map(a => a ? '#e74c3c' : '#3498db')
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: true } }
+                    }
+                });
+
+                // Returns chart
+                const returnsCtx = document.getElementById('returnsChart').getContext('2d');
+                if (returnsChart) returnsChart.destroy();
+                
+                returnsChart = new Chart(returnsCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.chart_data.dates,
+                        datasets: [{
+                            label: 'Daily Return (%)',
+                            data: data.chart_data.returns,
+                            backgroundColor: data.chart_data.anomalies.map(a => a ? '#e74c3c' : '#2ecc71')
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } }
+                    }
+                });
+
+                // Anomalies table
+                const anomaliesTableBody = document.getElementById('anomaliesTableBody');
+                anomaliesTableBody.innerHTML = '';
+                if (data.anomaly_details.length > 0) {
+                    data.anomaly_details.forEach(anomaly => {
+                        const row = `<tr>
+                            <td>${new Date(anomaly.Date).toLocaleDateString()}</td>
+                            <td>$${anomaly.Close.toFixed(2)}</td>
+                            <td>${anomaly['Daily_Return'].toFixed(3)}%</td>
+                        </tr>`;
+                        anomaliesTableBody.innerHTML += row;
+                    });
+                    document.getElementById('anomaliesContainer').style.display = 'block';
+                } else {
+                    document.getElementById('anomaliesContainer').style.display = 'none';
+                }
+
+                document.getElementById('chartContainer').style.display = 'block';
+                document.getElementById('returnsContainer').style.display = 'block';
+            } catch (err) {
+                error.textContent = 'Error: ' + err.message;
+                error.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        // Analyze on page load
+        analyzeBtn.click();
+    </script>
+</body>
+</html>
