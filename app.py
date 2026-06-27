@@ -272,23 +272,23 @@ def analyze():
         df['Anomaly_Score'] = iso_forest.score_samples(X)
         anomalies = df[df['Is_Anomaly'] == 1]
         
-        response = {
-            'success': True,
-            'ticker': ticker,
-            'total_days': len(df),
-            'anomalies_count': int(df['Is_Anomaly'].sum()),
-            'avg_return': float(df['Daily_Return'].mean()),
-            'volatility': float(df['Daily_Return'].std()),
-            'price_min': float(df['Close'].min()),
-            'price_max': float(df['Close'].max()),
-            'chart_data': {
-                'dates': df['Date'].astype(str).tolist(),
-                'prices': df['Close'].round(2).tolist(),
-                'returns': df['Daily_Return'].round(3).tolist(),
-                'anomalies': df['Is_Anomaly'].tolist()
-            },
-            'anomaly_details': anomalies[['Date', 'Close', 'Daily_Return']].to_dict('records')
-        }
+       response = {
+    'success': True,
+    'ticker': ticker,
+    'total_days': len(df),
+    'anomalies_count': int(df['Is_Anomaly'].sum()),
+    'avg_return': float(df['Daily_Return'].mean()) if not np.isnan(df['Daily_Return'].mean()) else 0,
+    'volatility': float(df['Daily_Return'].std()) if not np.isnan(df['Daily_Return'].std()) else 0,
+    'price_min': float(df['Close'].min()),
+    'price_max': float(df['Close'].max()),
+    'chart_data': {
+        'dates': df['Date'].astype(str).tolist(),
+        'prices': df['Close'].round(2).fillna(0).tolist(),
+        'returns': df['Daily_Return'].round(3).fillna(0).tolist(),
+        'anomalies': df['Is_Anomaly'].tolist()
+    },
+    'anomaly_details': anomalies[['Date', 'Close', 'Daily_Return']].fillna(0).to_dict('records')
+}
         return jsonify(response)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
