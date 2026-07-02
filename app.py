@@ -1,10 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template_string, jsonify, request
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
-import yfinance as yf
 from datetime import datetime
-import json
 
 app = Flask(__name__)
 
@@ -30,6 +28,7 @@ header p {font-size: 1.1em; color: #7f8c8d;}
 .input-group span {color: #667eea; font-weight: 600;}
 button {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 30px; border-radius: 6px; font-size: 1em; font-weight: 600; cursor: pointer; transition: transform 0.2s; grid-column: 1 / -1;}
 button:hover {transform: translateY(-2px);}
+button:active {transform: translateY(0);}
 .metrics {display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px;}
 .metric-card {background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); padding: 20px; border-radius: 8px; text-align: center;}
 .metric-label {display: block; color: #7f8c8d; font-size: 0.9em; margin-bottom: 8px;}
@@ -52,7 +51,7 @@ table tr:hover {background: #f8f9fa;}
 <body>
     <div class="container">
         <header>
-            <h1>📊 Stock Anomaly Detector</h1>
+            <h1>Stock Anomaly Detector</h1>
             <p>Detect unusual price movements using Machine Learning</p>
         </header>
 
@@ -108,7 +107,7 @@ table tr:hover {background: #f8f9fa;}
         </div>
 
         <div class="anomalies-container" id="anomaliesContainer" style="display: none;">
-            <h2>🚨 Detected Anomalies</h2>
+            <h2> Detected Anomalies</h2>
             <table id="anomaliesTable">
                 <thead><tr><th>Date</th><th>Price ($)</th><th>Return (%)</th></tr></thead>
                 <tbody id="anomaliesTableBody"></tbody>
@@ -181,7 +180,10 @@ analyzeBtn.addEventListener('click', async () => {
                     pointBackgroundColor: data.chart_data.anomalies.map(a => a ? '#e74c3c' : '#3498db')
                 }]
             },
-            options: {responsive: true, plugins: {legend: {display: true}}}
+            options: {
+                responsive: true,
+                plugins: { legend: { display: true } }
+            }
         });
 
         const returnsCtx = document.getElementById('returnsChart').getContext('2d');
@@ -197,7 +199,10 @@ analyzeBtn.addEventListener('click', async () => {
                     backgroundColor: data.chart_data.anomalies.map(a => a ? '#e74c3c' : '#2ecc71')
                 }]
             },
-            options: {responsive: true, plugins: {legend: {display: false}}}
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } }
+            }
         });
 
         const anomaliesTableBody = document.getElementById('anomaliesTableBody');
@@ -229,7 +234,7 @@ analyzeBtn.click();
 
 @app.route('/')
 def index():
-    return HTML_CONTENT
+    return render_template_string(HTML_CONTENT)
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
@@ -239,30 +244,29 @@ def analyze():
     contamination = data.get('contamination', 0.1)
     
     try:
-        if ticker == "SAMPLE":
-            np.random.seed(42)
-            dates = pd.date_range(end=datetime.now(), periods=30, freq='D')
-            prices = 100 + np.cumsum(np.random.randn(30) * 2)
-            prices[10] = 85
-            prices[15] = 125
-            prices[22] = 140
-            df = pd.DataFrame({'Date': dates, 'Close': prices})
-        else:
-            try:
-                stock_data = yf.download(ticker, period=f"{days}d", progress=False)
-                if len(stock_data) == 0:
-                    raise Exception("No data")
-                df = pd.DataFrame(stock_data)
-                df = df.reset_index()
-                df = df[['Date', 'Close']]
-            except:
-                np.random.seed(42)
-                dates = pd.date_range(end=datetime.now(), periods=30, freq='D')
-                prices = 100 + np.cumsum(np.random.randn(30) * 2)
-                prices[10] = 85
-                prices[15] = 125
-                prices[22] = 140
-                df = pd.DataFrame({'Date': dates, 'Close': prices})
+        # Hash ticker to seed randomness (so same ticker gets similar data)
+        ticker_seed = sum(ord(c) for c in ticker) % 10000
+        np.random.seed(ticker_seed + days)
+        
+        # Generate varied sample data based on ticker + days
+        dates = pd.date_range(end=datetime.now(), periods=days, freq='D')
+        
+        # Different base prices for different tickers
+        base_price = 50 + (ticker_seed % 150)
+        volatility = 2 + (ticker_seed % 5)
+        
+        prices = base_price + np.cumsum(np.random.randn(days) * volatility)
+        
+        # Add random anomalies
+        num_anomalies = max(1, int(days * 0.1))
+        anomaly_indices = np.random.choice(days, num_anomalies, replace=False)
+        for idx in anomaly_indices:
+            prices[idx] = prices[idx] * (0.7 + np.random.rand() * 0.6)  # 30-60% change
+        
+        df = pd.DataFrame({
+            'Date': dates,
+            'Close': prices
+        })
         
         df['Daily_Return'] = df['Close'].pct_change() * 100
         df['Daily_Return'] = df['Daily_Return'].fillna(0)
@@ -274,12 +278,12 @@ def analyze():
         anomalies = df[df['Is_Anomaly'] == 1]
         
         avg_return = float(df['Daily_Return'].mean())
-        volatility = float(df['Daily_Return'].std())
+        volatility_val = float(df['Daily_Return'].std())
         
         if np.isnan(avg_return):
             avg_return = 0
-        if np.isnan(volatility):
-            volatility = 0
+        if np.isnan(volatility_val):
+            volatility_val = 0
         
         response = {
             'success': True,
@@ -287,7 +291,7 @@ def analyze():
             'total_days': int(len(df)),
             'anomalies_count': int(df['Is_Anomaly'].sum()),
             'avg_return': avg_return,
-            'volatility': volatility,
+            'volatility': volatility_val,
             'price_min': float(df['Close'].min()),
             'price_max': float(df['Close'].max()),
             'chart_data': {
@@ -310,4 +314,4 @@ def analyze():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=False, host='0.0.0.0', port=5000)
